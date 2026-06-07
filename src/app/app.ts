@@ -1,12 +1,10 @@
-import { Component, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component } from '@angular/core';
+import { FitAssistant } from './components/fit-assistant/fit-assistant';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet],
+  imports: [FitAssistant],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
-export class App {
-  protected readonly title = signal('virtual-fit-assistant');
-}
+export class App {}
