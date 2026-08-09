@@ -3,80 +3,209 @@
     <h1>Client-Side Virtual Fit Assistant</h1>
 
     <p>
-      This prototype uses webcam-based pose estimation to estimate relative body
-      proportions and suggest a clothing size. Processing happens locally in the
-      browser.
+      This prototype estimates a generic unisex T-shirt size using
+      browser-based pose estimation. Webcam processing occurs locally
+      on your device.
     </p>
   </div>
 
-  <div class="camera-card">
-    <div class="video-wrapper">
-      <video #videoElement playsinline muted></video>
-      <canvas #canvasElement></canvas>
-    </div>
+  <div class="workspace">
+    <div class="camera-card">
+      <h2>1. Position Yourself</h2>
 
-    <div class="controls">
-      <button
-        type="button"
-        (click)="startCamera()"
-        [disabled]="isCameraActive"
+      <p class="instructions">
+        Face the camera directly and keep both shoulders and both hips
+        visible. The first analysis will begin automatically once your
+        position is stable.
+      </p>
+
+      <div class="video-wrapper">
+        <video
+          #videoElement
+          playsinline
+          muted
+        ></video>
+
+        <canvas #canvasElement></canvas>
+
+        <div
+          class="camera-countdown"
+          *ngIf="countdown() !== null"
+        >
+          {{ countdown() }}
+        </div>
+      </div>
+
+      <div
+        class="capture-status"
+        [class.status-ready]="
+          isCameraActive() &&
+          isTorsoVisible() &&
+          captureState() !== 'countdown'
+        "
+        [class.status-not-ready]="
+          isCameraActive() &&
+          !isTorsoVisible()
+        "
+        [class.status-countdown]="
+          captureState() === 'countdown'
+        "
+        [class.status-complete]="
+          captureState() === 'complete'
+        "
+        [class.status-idle]="
+          !isCameraActive()
+        "
       >
-        Start Camera
-      </button>
+        <div class="status-indicator">
+          <span class="status-dot"></span>
 
-      <button
-        type="button"
-        (click)="stopCamera()"
+          <span>
+            {{ guidanceMessage() }}
+          </span>
+        </div>
+
+        <p
+          class="torso-status"
+          *ngIf="isCameraActive()"
+        >
+          Torso detection:
+          <strong>
+            {{ isTorsoVisible() ? 'Ready ✓' : 'Not ready' }}
+          </strong>
+        </p>
+
+        <p
+          class="last-result"
+          *ngIf="sizeResult"
+        >
+          Size recommendation:
+          <strong>
+            {{ sizeResult.recommendedSize }}
+          </strong>
+        </p>
+      </div>
+
+      <div class="controls">
+        <button
+          type="button"
+          (click)="startCamera()"
+          [disabled]="
+            isCameraActive() ||
+            !isModelReady()
+          "
+        >
+          Start Camera
+        </button>
+
+        <button
+          type="button"
+          (click)="stopCamera()"
+          [disabled]="!isCameraActive()"
+        >
+          Stop Camera
+        </button>
+
+        <button
+          type="button"
+          class="analyse-button"
+          (click)="analyseFit()"
+          [disabled]="
+            !isCameraActive() ||
+            !isTorsoVisible() ||
+            isAnalysing() ||
+            captureState() === 'countdown'
+          "
+        >
+          {{ isAnalysing() ? 'Analysing...' : 'Analyse Fit' }}
+        </button>
+      </div>
+
+      <p class="privacy-note">
+        Camera frames are processed locally in your browser and are not
+        uploaded to a server.
+      </p>
+    </div>
+
+    <div class="result-card">
+      <h2>2. T-Shirt Size Recommendation</h2>
+
+      <ng-container
+        *ngIf="sizeResult; else noResult"
       >
-        Stop Camera
-      </button>
+        <p class="result-label">
+          Recommended size
+        </p>
+
+        <div class="size">
+          {{ sizeResult.recommendedSize }}
+        </div>
+
+        <p>
+          Confidence:
+          <strong>
+            {{ sizeResult.confidence }}
+          </strong>
+        </p>
+
+        <p>
+          {{ sizeResult.explanation }}
+        </p>
+
+        <div class="repeat-note">
+          <strong>
+            Want to try again?
+          </strong>
+
+          <p>
+            Reposition yourself, then select
+            <strong>Analyse Fit</strong>.
+            A new three-second countdown will begin before
+            the recommendation is recalculated.
+          </p>
+        </div>
+      </ng-container>
+
+      <ng-template #noResult>
+        <div class="empty-result">
+          <p>
+            Your T-shirt recommendation will appear here.
+          </p>
+
+          <p>
+            Start the camera and move into position.
+            The first analysis will begin automatically.
+          </p>
+        </div>
+      </ng-template>
     </div>
-
-    <p class="status" *ngIf="!isModelReady">
-      Loading pose detection model...
-    </p>
-
-    <p class="privacy-note">
-      Privacy note: webcam frames are processed locally in your browser and are
-      not uploaded to a server.
-    </p>
   </div>
 
-  <div class="result-card" *ngIf="sizeResult">
-    <h2>Recommended Size</h2>
-
-    <div class="size">
-      {{ sizeResult.recommendedSize }}
-    </div>
-
-    <p>
-      Confidence: <strong>{{ sizeResult.confidence }}</strong>
-    </p>
-
-    <p>
-      {{ sizeResult.explanation }}
-    </p>
-  </div>
-
-  <div class="measurements-card" *ngIf="measurements">
+  <div
+    class="measurements-card"
+    *ngIf="measurements"
+  >
     <h2>Detected Relative Proportions</h2>
 
     <ul>
       <li>
         Shoulder width ratio:
-        {{ measurements.shoulderWidthRatio | number: '1.2-2' }}
+        {{ measurements.shoulderWidthRatio | number:'1.2-2' }}
       </li>
+
       <li>
         Hip width ratio:
-        {{ measurements.hipWidthRatio | number: '1.2-2' }}
+        {{ measurements.hipWidthRatio | number:'1.2-2' }}
       </li>
+
       <li>
         Torso length ratio:
-        {{ measurements.torsoLengthRatio | number: '1.2-2' }}
+        {{ measurements.torsoLengthRatio | number:'1.2-2' }}
       </li>
+
       <li>
         Shoulder-to-hip ratio:
-        {{ measurements.shoulderToHipRatio | number: '1.2-2' }}
+        {{ measurements.shoulderToHipRatio | number:'1.2-2' }}
       </li>
     </ul>
   </div>

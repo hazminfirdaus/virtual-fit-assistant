@@ -1,5 +1,5 @@
 .fit-assistant {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
   font-family: Arial, sans-serif;
@@ -14,6 +14,14 @@
   margin-bottom: 0.5rem;
 }
 
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 1.5rem;
+  align-items: stretch;
+  margin-bottom: 1.5rem;
+}
+
 .camera-card,
 .result-card,
 .measurements-card {
@@ -21,8 +29,17 @@
   border: 1px solid #ddd;
   border-radius: 16px;
   padding: 1.5rem;
-  margin-bottom: 1.5rem;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.result-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.instructions {
+  color: #555;
+  line-height: 1.5;
 }
 
 .video-wrapper {
@@ -38,6 +55,7 @@
 video,
 canvas {
   position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -47,35 +65,252 @@ canvas {
   pointer-events: none;
 }
 
-.controls {
-  margin-top: 1rem;
+.camera-countdown {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+
   display: flex;
-  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 6rem;
+  font-weight: 700;
+
+  color: #fff;
+  background: rgba(0, 0, 0, 0.22);
+
+  pointer-events: none;
+
+  animation: countdown-pop 0.35s ease;
+}
+
+.capture-status {
+  min-height: 4rem;
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+
+  border: 1px solid transparent;
+  border-radius: 10px;
+
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease,
+    transform 0.3s ease;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-weight: 600;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.torso-status {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+}
+
+.last-result {
+  margin: 0.4rem 0 0;
+  font-size: 0.95rem;
+}
+
+.last-result strong {
+  font-size: 1.15rem;
+}
+
+.status-idle {
+  background: #f5f5f5;
+  border-color: #ddd;
+  color: #555;
+}
+
+.status-idle .status-dot {
+  background: #888;
+}
+
+.status-not-ready {
+  background: #fff1f1;
+  border-color: #e8a5a5;
+  color: #8b1e1e;
+}
+
+.status-not-ready .status-dot {
+  background: #c62828;
+  animation: pulse-status 1.4s infinite;
+}
+
+.status-ready {
+  background: #eef9f1;
+  border-color: #9bc9a6;
+  color: #236b35;
+}
+
+.status-ready .status-dot {
+  background: #2e7d32;
+  animation: ready-pulse 1.5s ease-in-out infinite;
+}
+
+.status-countdown {
+  background: #eef5ff;
+  border-color: #9db8df;
+  color: #234d7d;
+}
+
+.status-countdown .status-dot {
+  background: #356fa8;
+  animation: pulse-status 1s infinite;
+}
+
+.status-complete {
+  background: #eef9f1;
+  border-color: #9bc9a6;
+  color: #236b35;
+}
+
+.status-complete .status-dot {
+  background: #2e7d32;
+}
+
+.controls {
+  position: relative;
+  z-index: 10;
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+
+  margin-top: 1rem;
 }
 
 button {
   border: none;
   border-radius: 8px;
-  padding: 0.75rem 1.25rem;
+
+  padding: 0.75rem 1.1rem;
+
   background: #222;
   color: #fff;
+
   cursor: pointer;
+  font: inherit;
+
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 button:disabled {
-  background: #999;
+  background: #aaa;
   cursor: not-allowed;
+  transform: none;
 }
 
-.privacy-note,
-.status {
+.analyse-button:not(:disabled) {
+  background: #236b35;
+}
+
+.privacy-note {
   margin-top: 1rem;
   font-size: 0.9rem;
   color: #555;
 }
 
+.result-label {
+  margin-bottom: 0;
+  color: #555;
+}
+
 .size {
-  font-size: 4rem;
+  font-size: 5rem;
   font-weight: bold;
-  margin: 1rem 0;
+  margin: 0.5rem 0 1rem;
+}
+
+.empty-result {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+
+  color: #666;
+  line-height: 1.5;
+}
+
+.repeat-note {
+  margin-top: auto;
+  padding: 1rem;
+
+  background: #f6f7f8;
+  border-radius: 10px;
+
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.repeat-note p {
+  margin-bottom: 0;
+}
+
+.measurements-card ul {
+  line-height: 1.8;
+}
+
+@keyframes pulse-status {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.45;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes ready-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.35);
+  }
+}
+
+@keyframes countdown-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.65);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 800px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .camera-countdown {
+    font-size: 4.5rem;
+  }
 }
