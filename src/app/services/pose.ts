@@ -5,6 +5,11 @@ import {
   PoseLandmarkerResult
 } from '@mediapipe/tasks-vision';
 
+
+// while the Pose service is responsible for detecting pose landmarks from video input. 
+// This separation allows each service to focus on a specific task, making the code easier to maintain and test. 
+// The Pose service can be used to get the raw pose landmarks, which can then be passed to the Measurement service to calculate specific measurements based on those landmarks. 
+// This design adheres to the Single Responsibility Principle, as each service has a clear and distinct responsibility.
 @Injectable({
   providedIn: 'root'
 })

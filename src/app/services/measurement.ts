@@ -8,6 +8,8 @@ export interface PoseMeasurements {
   shoulderToHipRatio: number;
 }
 
+// Design pattern / principle note: this is mainly Single Responsibility Principle.
+// The Measurement service is responsible for calculating measurements from pose landmarks.
 @Injectable({
   providedIn: 'root'
 })

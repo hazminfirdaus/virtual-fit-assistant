@@ -1,1 +1,83 @@
-<p>fit-assistant works!</p>
+<section class="fit-assistant">
+  <div class="intro">
+    <h1>Client-Side Virtual Fit Assistant</h1>
+
+    <p>
+      This prototype uses webcam-based pose estimation to estimate relative body
+      proportions and suggest a clothing size. Processing happens locally in the
+      browser.
+    </p>
+  </div>
+
+  <div class="camera-card">
+    <div class="video-wrapper">
+      <video #videoElement playsinline muted></video>
+      <canvas #canvasElement></canvas>
+    </div>
+
+    <div class="controls">
+      <button
+        type="button"
+        (click)="startCamera()"
+        [disabled]="isCameraActive"
+      >
+        Start Camera
+      </button>
+
+      <button
+        type="button"
+        (click)="stopCamera()"
+      >
+        Stop Camera
+      </button>
+    </div>
+
+    <p class="status" *ngIf="!isModelReady">
+      Loading pose detection model...
+    </p>
+
+    <p class="privacy-note">
+      Privacy note: webcam frames are processed locally in your browser and are
+      not uploaded to a server.
+    </p>
+  </div>
+
+  <div class="result-card" *ngIf="sizeResult">
+    <h2>Recommended Size</h2>
+
+    <div class="size">
+      {{ sizeResult.recommendedSize }}
+    </div>
+
+    <p>
+      Confidence: <strong>{{ sizeResult.confidence }}</strong>
+    </p>
+
+    <p>
+      {{ sizeResult.explanation }}
+    </p>
+  </div>
+
+  <div class="measurements-card" *ngIf="measurements">
+    <h2>Detected Relative Proportions</h2>
+
+    <ul>
+      <li>
+        Shoulder width ratio:
+        {{ measurements.shoulderWidthRatio | number: '1.2-2' }}
+      </li>
+      <li>
+        Hip width ratio:
+        {{ measurements.hipWidthRatio | number: '1.2-2' }}
+      </li>
+      <li>
+        Torso length ratio:
+        {{ measurements.torsoLengthRatio | number: '1.2-2' }}
+      </li>
+      <li>
+        Shoulder-to-hip ratio:
+        {{ measurements.shoulderToHipRatio | number: '1.2-2' }}
+      </li>
+    </ul>
+  </div>
+</section>
