@@ -17,7 +17,7 @@
 
   <div class="workspace">
 
-    <!-- Camera and capture guidance -->
+
     <div class="camera-card">
 
       <h2>
@@ -25,9 +25,9 @@
       </h2>
 
       <p class="instructions">
-        Face the camera directly and keep both shoulders and both hips
-        visible. The first analysis will begin automatically once your
-        position is stable.
+        Face the camera directly. Keep both shoulders and both hips
+        visible and move until your torso fits approximately within
+        the positioning guide.
       </p>
 
 
@@ -44,7 +44,23 @@
         ></canvas>
 
 
-        <!-- Countdown appears over the webcam -->
+        <!-- Positioning guide -->
+        <div
+          class="position-guide"
+          [class.guide-ready]="
+            isCameraActive() &&
+            isTorsoVisible() &&
+            isPositionValid()
+          "
+        >
+
+          <div class="guide-label">
+            Position torso here
+          </div>
+
+        </div>
+
+
         <div
           class="camera-countdown"
           *ngIf="countdown() !== null"
@@ -55,19 +71,22 @@
       </div>
 
 
-      <!-- Positioning and analysis feedback -->
       <div
         class="capture-status"
 
         [class.status-ready]="
           isCameraActive() &&
           isTorsoVisible() &&
+          isPositionValid() &&
           captureState() !== 'countdown'
         "
 
         [class.status-not-ready]="
           isCameraActive() &&
-          !isTorsoVisible()
+          (
+            !isTorsoVisible() ||
+            !isPositionValid()
+          )
         "
 
         [class.status-countdown]="
@@ -105,7 +124,8 @@
 
           <strong>
             {{
-              isTorsoVisible()
+              isTorsoVisible() &&
+              isPositionValid()
                 ? 'Ready ✓'
                 : 'Not ready'
             }}
@@ -130,7 +150,6 @@
       </div>
 
 
-      <!-- Main controls -->
       <div class="controls">
 
         <button
@@ -167,6 +186,7 @@
           [disabled]="
             !isCameraActive() ||
             !isTorsoVisible() ||
+            !isPositionValid() ||
             isAnalysing() ||
             captureState() === 'countdown'
           "
@@ -191,7 +211,6 @@
     </div>
 
 
-    <!-- Size recommendation -->
     <div class="result-card">
 
       <h2>
@@ -234,10 +253,8 @@
           </strong>
 
           <p>
-            Reposition yourself, then select
+            Reposition yourself within the guide, then select
             <strong>Analyse Fit</strong>.
-            A new three-second countdown will begin before
-            the recommendation is recalculated. Or simplystop and restart the camera to try again.
           </p>
 
         </div>
@@ -254,8 +271,8 @@
           </p>
 
           <p>
-            Start the camera and move into position.
-            The first analysis will begin automatically.
+            Start the camera and position your torso within
+            the guide.
           </p>
 
         </div>
@@ -267,75 +284,113 @@
   </div>
 
 
-  <!--
-    Prototype/debug information.
+  <!-- Development-only measurements -->
+  <div
+    class="measurements-card"
+    *ngIf="measurements"
+  >
 
-    These relative values are currently useful during development
-    and technical testing. We can decide later whether participants
-    should see this section during the formal study.
-  -->
- <div
-  class="measurements-card"
-  *ngIf="measurements"
->
+    <h2>
+      Detected Relative Proportions
+    </h2>
 
-  <h2>
-    Detected Relative Proportions
-  </h2>
+    <p class="development-note">
+      Development values used to test and calibrate the
+      prototype recommendation model.
+    </p>
 
-  <p class="development-note">
-    Development values used to test and calibrate the
-    prototype recommendation model.
-  </p>
 
-  <ul>
+    <ul>
 
-    <li>
-      Shoulder-to-torso ratio:
+      <li>
+        Shoulder width:
 
-      <strong>
-        {{
-          measurements.shoulderToTorsoRatio
-            | number:'1.3-3'
-        }}
-      </strong>
-    </li>
+        <strong>
+          {{
+            measurements.shoulderWidth
+              | number:'1.3-3'
+          }}
+        </strong>
+      </li>
 
-    <li>
-      Hip-to-torso ratio:
 
-      <strong>
-        {{
-          measurements.hipToTorsoRatio
-            | number:'1.3-3'
-        }}
-      </strong>
-    </li>
+      <li>
+        Hip width:
 
-    <li>
-      Shoulder-to-hip ratio:
+        <strong>
+          {{
+            measurements.hipWidth
+              | number:'1.3-3'
+          }}
+        </strong>
+      </li>
 
-      <strong>
-        {{
-          measurements.shoulderToHipRatio
-            | number:'1.3-3'
-        }}
-      </strong>
-    </li>
 
-    <li *ngIf="sizeResult">
-      Proportion score:
+      <li>
+        Torso length:
 
-      <strong>
-        {{
-          sizeResult.proportionScore
-            | number:'1.3-3'
-        }}
-      </strong>
-    </li>
+        <strong>
+          {{
+            measurements.torsoLength
+              | number:'1.3-3'
+          }}
+        </strong>
+      </li>
 
-  </ul>
 
-</div>
+      <li>
+        Shoulder-to-torso ratio:
+
+        <strong>
+          {{
+            measurements.shoulderToTorsoRatio
+              | number:'1.3-3'
+          }}
+        </strong>
+      </li>
+
+
+      <li>
+        Hip-to-torso ratio:
+
+        <strong>
+          {{
+            measurements.hipToTorsoRatio
+              | number:'1.3-3'
+          }}
+        </strong>
+      </li>
+
+
+      <li>
+        Shoulder-to-hip ratio:
+
+        <strong>
+          {{
+            measurements.shoulderToHipRatio
+              | number:'1.3-3'
+          }}
+        </strong>
+      </li>
+
+
+      <li
+        *ngIf="sizeResult"
+      >
+
+        Proportion score:
+
+        <strong>
+          {{
+            sizeResult.proportionScore
+              | number:'1.3-3'
+          }}
+        </strong>
+
+      </li>
+
+    </ul>
+
+  </div>
 
 </section>

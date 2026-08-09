@@ -2,17 +2,21 @@ import { Injectable } from '@angular/core';
 import { NormalizedLandmark } from '@mediapipe/tasks-vision';
 
 /**
- * Relative body proportions derived from 2D MediaPipe pose landmarks.
+ * Relative 2D measurements derived from MediaPipe pose landmarks.
  *
- * The prototype intentionally uses ratios rather than exact body
- * measurements. This keeps the approach:
+ * The prototype intentionally avoids exact body measurements.
+ * Instead, it combines:
  *
- * - client-side;
- * - lightweight;
- * - aligned with the MSc project proposal;
- * - less sensitive to camera distance than raw image distances.
+ * 1. normalized image-space dimensions, and
+ * 2. relative body-shape ratios.
+ *
+ * The positioning guide helps reduce variation caused by camera distance.
  */
 export interface PoseMeasurements {
+  shoulderWidth: number;
+  hipWidth: number;
+  torsoLength: number;
+
   shoulderToTorsoRatio: number;
   hipToTorsoRatio: number;
   shoulderToHipRatio: number;
@@ -23,9 +27,6 @@ export interface PoseMeasurements {
 })
 export class Measurement {
 
-  /**
-   * Converts MediaPipe pose landmarks into relative torso proportions.
-   */
   calculate(
     landmarks: NormalizedLandmark[]
   ): PoseMeasurements | null {
@@ -45,16 +46,28 @@ export class Measurement {
     const rightHip = landmarks[24];
 
     const shoulderWidth =
-      this.distance(leftShoulder, rightShoulder);
+      this.distance(
+        leftShoulder,
+        rightShoulder
+      );
 
     const hipWidth =
-      this.distance(leftHip, rightHip);
+      this.distance(
+        leftHip,
+        rightHip
+      );
 
     const shoulderMidpoint =
-      this.midpoint(leftShoulder, rightShoulder);
+      this.midpoint(
+        leftShoulder,
+        rightShoulder
+      );
 
     const hipMidpoint =
-      this.midpoint(leftHip, rightHip);
+      this.midpoint(
+        leftHip,
+        rightHip
+      );
 
     const torsoLength =
       this.distance(
@@ -62,9 +75,6 @@ export class Measurement {
         hipMidpoint
       );
 
-    /*
-     * Prevent invalid or degenerate ratios.
-     */
     if (
       shoulderWidth <= 0 ||
       hipWidth <= 0 ||
@@ -73,17 +83,11 @@ export class Measurement {
       return null;
     }
 
-    /*
-     * Ratio-based measurements reduce the influence of image scale.
-     *
-     * If a user moves somewhat closer to or farther from the camera,
-     * shoulder width, hip width and torso length should change by
-     * approximately the same scale factor.
-     *
-     * Dividing these values therefore produces a more stable signal
-     * than using the raw normalized distances directly.
-     */
     return {
+      shoulderWidth,
+      hipWidth,
+      torsoLength,
+
       shoulderToTorsoRatio:
         shoulderWidth / torsoLength,
 
@@ -96,10 +100,10 @@ export class Measurement {
   }
 
   /**
-   * Calculates 2D Euclidean distance between two landmarks.
+   * Calculates a 2D Euclidean distance.
    *
-   * Z is deliberately excluded because this project focuses on
-   * relative 2D proportions rather than 3D reconstruction.
+   * Z is intentionally excluded because this project
+   * uses 2D pose estimation rather than 3D reconstruction.
    */
   private distance(
     a: NormalizedLandmark,
@@ -115,23 +119,18 @@ export class Measurement {
     );
   }
 
-  /**
-   * Calculates the midpoint between two landmarks.
-   *
-   * This is used to approximate the centre of the shoulder line
-   * and the centre of the hip line.
-   */
   private midpoint(
     a: NormalizedLandmark,
     b: NormalizedLandmark
   ): NormalizedLandmark {
 
     return {
-      x: (a.x + b.x) / 2,
-      y: (a.y + b.y) / 2,
+      x:
+        (a.x + b.x) / 2,
 
-      // Retained because NormalizedLandmark includes z,
-      // although it is not used in our distance calculation.
+      y:
+        (a.y + b.y) / 2,
+
       z:
         ((a.z ?? 0) + (b.z ?? 0)) / 2,
 

@@ -315,8 +315,111 @@ button:disabled {
   }
 }
 
+.position-guide {
+  position: absolute;
+
+  z-index: 8;
+
+  top: 17%;
+  left: 25%;
+
+  width: 50%;
+  height: 62%;
+
+  border: 3px dashed
+    rgba(255, 255, 255, 0.75);
+
+  border-radius: 24px;
+
+  pointer-events: none;
+
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    background-color 0.25s ease;
+}
+
+
+.position-guide::before,
+.position-guide::after {
+  content: '';
+
+  position: absolute;
+
+  left: 10%;
+
+  width: 80%;
+
+  border-top: 2px solid
+    rgba(255, 255, 255, 0.5);
+}
+
+
+/* Approximate shoulder line */
+.position-guide::before {
+  top: 20%;
+}
+
+
+/* Approximate hip line */
+.position-guide::after {
+  bottom: 18%;
+}
+
+
+.guide-label {
+  position: absolute;
+
+  top: -2rem;
+
+  left: 50%;
+
+  transform:
+    translateX(-50%);
+
+  white-space: nowrap;
+
+  padding:
+    0.3rem
+    0.6rem;
+
+  border-radius: 6px;
+
+  background:
+    rgba(0, 0, 0, 0.55);
+
+  color: #fff;
+
+  font-size: 0.8rem;
+
+  font-weight: 600;
+}
+
+
+.position-guide.guide-ready {
+  border-color: #52c66d;
+
+  background:
+    rgba(46, 125, 50, 0.08);
+
+  box-shadow:
+    0 0 0 2px
+    rgba(82, 198, 109, 0.2);
+}
+
+
+.position-guide.guide-ready::before,
+.position-guide.guide-ready::after {
+  border-color:
+    rgba(82, 198, 109, 0.8);
+}
+
+
 .development-note {
   margin-top: -0.25rem;
+
   color: #666;
+
   font-size: 0.9rem;
 }
+

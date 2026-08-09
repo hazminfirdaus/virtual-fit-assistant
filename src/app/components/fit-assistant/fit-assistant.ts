@@ -9,6 +9,8 @@ import {
 
 import { CommonModule } from '@angular/common';
 
+import { NormalizedLandmark } from '@mediapipe/tasks-vision';
+
 import { Pose } from '../../services/pose';
 
 import {
@@ -31,6 +33,12 @@ type CaptureState =
   | 'complete';
 
 
+interface PositionCheck {
+  valid: boolean;
+  message: string;
+}
+
+
 @Component({
   selector: 'app-fit-assistant',
   imports: [CommonModule],
@@ -47,15 +55,17 @@ export class FitAssistant
   canvasElement!: ElementRef<HTMLCanvasElement>;
 
 
-  // -----------------------------
+  // -------------------------------------------------
   // Reactive UI state
-  // -----------------------------
+  // -------------------------------------------------
 
   isCameraActive = signal(false);
 
   isModelReady = signal(false);
 
   isTorsoVisible = signal(false);
+
+  isPositionValid = signal(false);
 
   isAnalysing = signal(false);
 
@@ -70,9 +80,9 @@ export class FitAssistant
   );
 
 
-  // -----------------------------
+  // -------------------------------------------------
   // Analysis results
-  // -----------------------------
+  // -------------------------------------------------
 
   measurements:
     PoseMeasurements | null = null;
@@ -81,12 +91,10 @@ export class FitAssistant
     SizeResult | null = null;
 
 
-  /*
-   * Rolling collection of valid pose measurements.
-   *
-   * Averaging several frames reduces the effect of
-   * small frame-to-frame landmark fluctuations.
-   */
+  // -------------------------------------------------
+  // Multi-frame sampling
+  // -------------------------------------------------
+
   private measurementSamples:
     PoseMeasurements[] = [];
 
@@ -95,12 +103,52 @@ export class FitAssistant
   private readonly minimumSamplesForAnalysis = 10;
 
 
+  // -------------------------------------------------
+  // Positioning guide
+  // -------------------------------------------------
+
   /*
-   * Automatic analysis occurs once per camera session.
+   * These values correspond approximately to the guide
+   * drawn over the camera in fit-assistant.css.
    *
-   * After that, the user can manually request another
-   * analysis using the Analyse Fit button.
+   * All coordinates are normalized:
+   *
+   * 0 = top / left of image
+   * 1 = bottom / right of image
+   *
+   * The visual guide:
+   *
+   * - begins around 17% from the top;
+   * - has a shoulder target around 29%;
+   * - has a hip target around 68%;
+   * - is centred horizontally.
+   *
+   * Fairly generous tolerances are used so participants
+   * do not have to match an exact pixel position.
    */
+
+  private readonly shoulderTargetY = 0.29;
+  private readonly shoulderToleranceY = 0.09;
+
+  private readonly hipTargetY = 0.68;
+  private readonly hipToleranceY = 0.10;
+
+  private readonly centreTargetX = 0.50;
+  private readonly centreToleranceX = 0.12;
+
+  /*
+   * The torso-length check remains as a secondary safeguard.
+   *
+   * It is no longer the sole positioning criterion.
+   */
+  private readonly minimumTorsoLength = 0.28;
+  private readonly maximumTorsoLength = 0.52;
+
+
+  // -------------------------------------------------
+  // Capture state
+  // -------------------------------------------------
+
   private automaticAnalysisCompleted = false;
 
   private countdownInProgress = false;
@@ -122,9 +170,9 @@ export class FitAssistant
   ) {}
 
 
-  // -----------------------------
+  // -------------------------------------------------
   // MediaPipe initialisation
-  // -----------------------------
+  // -------------------------------------------------
 
   async ngAfterViewInit():
     Promise<void> {
@@ -155,9 +203,9 @@ export class FitAssistant
   }
 
 
-  // -----------------------------
+  // -------------------------------------------------
   // Camera
-  // -----------------------------
+  // -------------------------------------------------
 
   async startCamera():
     Promise<void> {
@@ -173,9 +221,9 @@ export class FitAssistant
         return;
       }
 
+
       /*
-       * Ensure any previous stream/session is fully
-       * cleaned up before opening the camera again.
+       * Clean up any previous camera session first.
        */
       this.stopCamera();
 
@@ -199,6 +247,7 @@ export class FitAssistant
           .getUserMedia({
 
             video: {
+
               width: {
                 ideal: 640
               },
@@ -219,8 +268,7 @@ export class FitAssistant
 
 
       /*
-       * Wait for video metadata so videoWidth and
-       * videoHeight are available before detection.
+       * Wait until browser video dimensions are available.
        */
       await new Promise<void>(
         (resolve) => {
@@ -238,6 +286,8 @@ export class FitAssistant
 
       this.isTorsoVisible.set(false);
 
+      this.isPositionValid.set(false);
+
       this.isAnalysing.set(false);
 
       this.captureState.set(
@@ -246,7 +296,7 @@ export class FitAssistant
 
 
       this.guidanceMessage.set(
-        'Move into position and keep both shoulders and both hips visible.'
+        'Move into the guide and align your shoulders and hips with the guide lines.'
       );
 
 
@@ -270,13 +320,11 @@ export class FitAssistant
 
   stopCamera(): void {
 
-    /*
-     * Mark camera as inactive first so the
-     * requestAnimationFrame loop cannot redraw.
-     */
     this.isCameraActive.set(false);
 
     this.isTorsoVisible.set(false);
+
+    this.isPositionValid.set(false);
 
     this.isAnalysing.set(false);
 
@@ -328,11 +376,8 @@ export class FitAssistant
 
     if (canvas) {
 
-      /*
-       * Resetting canvas dimensions clears
-       * all previously drawn landmarks.
-       */
-      canvas.width = canvas.width;
+      canvas.width =
+        canvas.width;
     }
 
 
@@ -342,9 +387,9 @@ export class FitAssistant
   }
 
 
-  // -----------------------------
-  // Manual re-analysis
-  // -----------------------------
+  // -------------------------------------------------
+  // Manual analysis
+  // -------------------------------------------------
 
   analyseFit(): void {
 
@@ -353,10 +398,13 @@ export class FitAssistant
     }
 
 
-    if (!this.isTorsoVisible()) {
+    if (
+      !this.isTorsoVisible() ||
+      !this.isPositionValid()
+    ) {
 
       this.guidanceMessage.set(
-        'Please make sure both shoulders and both hips are visible before analysing.'
+        'Align your shoulders and hips with the positioning guide before analysing.'
       );
 
       return;
@@ -384,17 +432,13 @@ export class FitAssistant
     }
 
 
-    /*
-     * Give the user time to return to a stable
-     * pose after clicking the button.
-     */
     this.startManualCountdown();
   }
 
 
-  // -----------------------------
-  // Live pose detection
-  // -----------------------------
+  // -------------------------------------------------
+  // Pose detection loop
+  // -------------------------------------------------
 
   private detectPose(): void {
 
@@ -479,109 +523,64 @@ export class FitAssistant
       );
 
 
-      const calculatedMeasurements =
-        this.measurementService
-          .calculate(landmarks);
+      if (!torsoVisible) {
+
+        this.handleMissingTorso();
+
+      } else {
+
+        const calculatedMeasurements =
+          this.measurementService
+            .calculate(landmarks);
 
 
-      if (
-        torsoVisible &&
-        calculatedMeasurements &&
-        !this.isAnalysing()
-      ) {
+        if (!calculatedMeasurements) {
 
-        this.addMeasurementSample(
-          calculatedMeasurements
-        );
+          this.handleMissingTorso();
+
+        } else {
+
+          /*
+           * Position validation now uses the actual
+           * shoulder and hip landmarks in relation
+           * to the visible positioning guide.
+           */
+          const positionCheck =
+            this.checkGuideAlignment(
+              landmarks,
+              calculatedMeasurements
+            );
 
 
-        /*
-         * First successful capture:
-         *
-         * Once enough valid frames are available,
-         * automatically start the initial countdown.
-         */
-        if (
-          !this.automaticAnalysisCompleted &&
-          !this.countdownInProgress &&
-          this.measurementSamples.length >=
-            this.minimumSamplesForAnalysis
-        ) {
-
-          this.startAutomaticCountdown();
-
-        } else if (
-          !this.countdownInProgress &&
-          this.automaticAnalysisCompleted
-        ) {
-
-          this.captureState.set(
-            'ready'
+          this.isPositionValid.set(
+            positionCheck.valid
           );
 
-          this.guidanceMessage.set(
-            'Position looks good. You can analyse your fit again.'
-          );
 
-        } else if (
-          !this.countdownInProgress
-        ) {
+          if (
+            positionCheck.valid &&
+            !this.isAnalysing()
+          ) {
 
-          this.captureState.set(
-            'positioning'
-          );
+            this.handleValidPosition(
+              calculatedMeasurements
+            );
 
-          this.guidanceMessage.set(
-            'Position looks good. Hold still while measurements are collected.'
-          );
+          } else if (
+            !positionCheck.valid &&
+            !this.isAnalysing()
+          ) {
+
+            this.handleInvalidPosition(
+              positionCheck.message
+            );
+          }
         }
-
-      } else if (
-        !torsoVisible &&
-        !this.isAnalysing()
-      ) {
-
-        if (
-          this.countdownInProgress
-        ) {
-
-          this.cancelCountdown();
-        }
-
-
-        this.captureState.set(
-          'positioning'
-        );
-
-
-        this.guidanceMessage.set(
-          'Keep both shoulders and both hips visible in the frame.'
-        );
       }
 
     } else {
 
-      this.isTorsoVisible.set(false);
-
-
-      if (
-        this.countdownInProgress
-      ) {
-
-        this.cancelCountdown();
-      }
-
-
-      if (!this.isAnalysing()) {
-
-        this.captureState.set(
-          'positioning'
-        );
-
-        this.guidanceMessage.set(
-          'No pose detected. Move into the camera frame.'
-        );
-      }
+      this.handleMissingTorso();
     }
 
 
@@ -592,9 +591,314 @@ export class FitAssistant
   }
 
 
-  // -----------------------------
-  // Initial automatic countdown
-  // -----------------------------
+  // -------------------------------------------------
+  // Guide validation
+  // -------------------------------------------------
+
+  private checkGuideAlignment(
+    landmarks: NormalizedLandmark[],
+    measurements: PoseMeasurements
+  ): PositionCheck {
+
+    const leftShoulder =
+      landmarks[11];
+
+    const rightShoulder =
+      landmarks[12];
+
+    const leftHip =
+      landmarks[23];
+
+    const rightHip =
+      landmarks[24];
+
+
+    const shoulderMidX =
+      (
+        leftShoulder.x +
+        rightShoulder.x
+      ) / 2;
+
+
+    const shoulderMidY =
+      (
+        leftShoulder.y +
+        rightShoulder.y
+      ) / 2;
+
+
+    const hipMidX =
+      (
+        leftHip.x +
+        rightHip.x
+      ) / 2;
+
+
+    const hipMidY =
+      (
+        leftHip.y +
+        rightHip.y
+      ) / 2;
+
+
+    /*
+     * Use the midpoint between shoulder centre
+     * and hip centre as the approximate torso centre.
+     */
+    const torsoCentreX =
+      (
+        shoulderMidX +
+        hipMidX
+      ) / 2;
+
+
+    // -----------------------------
+    // Distance / scale
+    // -----------------------------
+
+    if (
+      measurements.torsoLength <
+      this.minimumTorsoLength
+    ) {
+
+      return {
+        valid: false,
+        message:
+          'Move slightly closer to the camera.'
+      };
+    }
+
+
+    if (
+      measurements.torsoLength >
+      this.maximumTorsoLength
+    ) {
+
+      return {
+        valid: false,
+        message:
+          'Move slightly farther from the camera.'
+      };
+    }
+
+
+    // -----------------------------
+    // Vertical shoulder alignment
+    // -----------------------------
+
+    if (
+      shoulderMidY <
+      this.shoulderTargetY -
+        this.shoulderToleranceY
+    ) {
+
+      return {
+        valid: false,
+        message:
+          'Move slightly lower so your shoulders align with the upper guide line.'
+      };
+    }
+
+
+    if (
+      shoulderMidY >
+      this.shoulderTargetY +
+        this.shoulderToleranceY
+    ) {
+
+      return {
+        valid: false,
+        message:
+          'Move slightly higher so your shoulders align with the upper guide line.'
+      };
+    }
+
+
+    // -----------------------------
+    // Vertical hip alignment
+    // -----------------------------
+
+    if (
+      hipMidY <
+      this.hipTargetY -
+        this.hipToleranceY
+    ) {
+
+      return {
+        valid: false,
+        message:
+          'Move slightly lower so your hips align with the lower guide line.'
+      };
+    }
+
+
+    if (
+      hipMidY >
+      this.hipTargetY +
+        this.hipToleranceY
+    ) {
+
+      return {
+        valid: false,
+        message:
+          'Move slightly higher so your hips align with the lower guide line.'
+      };
+    }
+
+
+    // -----------------------------
+    // Horizontal centring
+    // -----------------------------
+
+    if (
+      Math.abs(
+        torsoCentreX -
+        this.centreTargetX
+      ) >
+      this.centreToleranceX
+    ) {
+
+      return {
+        valid: false,
+        message:
+          'Move your torso slightly toward the centre of the guide.'
+      };
+    }
+
+
+    return {
+      valid: true,
+      message:
+        'Position looks good. Hold still while measurements are collected.'
+    };
+  }
+
+
+  // -------------------------------------------------
+  // Valid / invalid positioning
+  // -------------------------------------------------
+
+  private handleValidPosition(
+    measurements: PoseMeasurements
+  ): void {
+
+    this.addMeasurementSample(
+      measurements
+    );
+
+
+    /*
+     * Automatically start the first analysis
+     * after enough valid frames have been collected.
+     */
+    if (
+      !this.automaticAnalysisCompleted &&
+      !this.countdownInProgress &&
+      this.measurementSamples.length >=
+        this.minimumSamplesForAnalysis
+    ) {
+
+      this.startAutomaticCountdown();
+
+      return;
+    }
+
+
+    /*
+     * After the first automatic analysis,
+     * the user may perform another manually.
+     */
+    if (
+      !this.countdownInProgress &&
+      this.automaticAnalysisCompleted
+    ) {
+
+      this.captureState.set(
+        'ready'
+      );
+
+
+      this.guidanceMessage.set(
+        'Position looks good. You can analyse your fit again.'
+      );
+
+      return;
+    }
+
+
+    if (!this.countdownInProgress) {
+
+      this.captureState.set(
+        'positioning'
+      );
+
+
+      this.guidanceMessage.set(
+        'Position looks good. Hold still while measurements are collected.'
+      );
+    }
+  }
+
+
+  private handleInvalidPosition(
+    message: string
+  ): void {
+
+    this.isPositionValid.set(false);
+
+
+    if (
+      this.countdownInProgress
+    ) {
+
+      this.cancelCountdown();
+    }
+
+
+    this.captureState.set(
+      'positioning'
+    );
+
+
+    this.guidanceMessage.set(
+      message
+    );
+  }
+
+
+  private handleMissingTorso():
+    void {
+
+    this.isTorsoVisible.set(false);
+
+    this.isPositionValid.set(false);
+
+
+    if (
+      this.countdownInProgress
+    ) {
+
+      this.cancelCountdown();
+    }
+
+
+    if (!this.isAnalysing()) {
+
+      this.captureState.set(
+        'positioning'
+      );
+
+
+      this.guidanceMessage.set(
+        'Keep both shoulders and both hips visible in the frame.'
+      );
+    }
+  }
+
+
+  // -------------------------------------------------
+  // Automatic countdown
+  // -------------------------------------------------
 
   private startAutomaticCountdown():
     void {
@@ -622,13 +926,10 @@ export class FitAssistant
     value: number
   ): void {
 
-    /*
-     * Abort if the user moves out of a
-     * sufficiently visible torso position.
-     */
     if (
       !this.isCameraActive() ||
-      !this.isTorsoVisible()
+      !this.isTorsoVisible() ||
+      !this.isPositionValid()
     ) {
 
       this.cancelCountdown();
@@ -639,7 +940,7 @@ export class FitAssistant
 
 
       this.guidanceMessage.set(
-        'Keep both shoulders and both hips visible in the frame.'
+        'Return to the positioning guide.'
       );
 
       return;
@@ -664,11 +965,6 @@ export class FitAssistant
 
       this.countdown.set(null);
 
-
-      /*
-       * Set this before analysis to prevent
-       * another automatic countdown.
-       */
       this.automaticAnalysisCompleted = true;
 
 
@@ -689,16 +985,14 @@ export class FitAssistant
   }
 
 
-  // -----------------------------
+  // -------------------------------------------------
   // Manual countdown
-  // -----------------------------
+  // -------------------------------------------------
 
   private startManualCountdown():
     void {
 
-    if (
-      this.countdownInProgress
-    ) {
+    if (this.countdownInProgress) {
       return;
     }
 
@@ -720,7 +1014,8 @@ export class FitAssistant
 
     if (
       !this.isCameraActive() ||
-      !this.isTorsoVisible()
+      !this.isTorsoVisible() ||
+      !this.isPositionValid()
     ) {
 
       this.cancelCountdown();
@@ -731,7 +1026,7 @@ export class FitAssistant
 
 
       this.guidanceMessage.set(
-        'Keep both shoulders and both hips visible in the frame.'
+        'Return to the positioning guide.'
       );
 
       return;
@@ -795,9 +1090,9 @@ export class FitAssistant
   }
 
 
-  // -----------------------------
+  // -------------------------------------------------
   // Fit analysis
-  // -----------------------------
+  // -------------------------------------------------
 
   private performAnalysis():
     void {
@@ -817,15 +1112,6 @@ export class FitAssistant
     );
 
 
-    this.guidanceMessage.set(
-      'Analysing your T-shirt fit...'
-    );
-
-
-    /*
-     * Average recent valid frames before passing
-     * the measurements to the recommendation logic.
-     */
     const averagedMeasurements =
       this.averageMeasurements(
         this.measurementSamples
@@ -856,9 +1142,9 @@ export class FitAssistant
   }
 
 
-  // -----------------------------
+  // -------------------------------------------------
   // Multi-frame averaging
-  // -----------------------------
+  // -------------------------------------------------
 
   private addMeasurementSample(
     measurement: PoseMeasurements
@@ -870,9 +1156,7 @@ export class FitAssistant
 
 
     /*
-     * Rolling window:
-     * old frames gradually disappear so repeated
-     * analysis reflects the user's latest position.
+     * Keep only the most recent valid samples.
      */
     if (
       this.measurementSamples.length >
@@ -897,6 +1181,18 @@ export class FitAssistant
 
         (sum, sample) => ({
 
+          shoulderWidth:
+            sum.shoulderWidth +
+            sample.shoulderWidth,
+
+          hipWidth:
+            sum.hipWidth +
+            sample.hipWidth,
+
+          torsoLength:
+            sum.torsoLength +
+            sample.torsoLength,
+
           shoulderToTorsoRatio:
             sum.shoulderToTorsoRatio +
             sample.shoulderToTorsoRatio,
@@ -912,6 +1208,9 @@ export class FitAssistant
         }),
 
         {
+          shoulderWidth: 0,
+          hipWidth: 0,
+          torsoLength: 0,
           shoulderToTorsoRatio: 0,
           hipToTorsoRatio: 0,
           shoulderToHipRatio: 0
@@ -920,6 +1219,18 @@ export class FitAssistant
 
 
     return {
+
+      shoulderWidth:
+        totals.shoulderWidth /
+        count,
+
+      hipWidth:
+        totals.hipWidth /
+        count,
+
+      torsoLength:
+        totals.torsoLength /
+        count,
 
       shoulderToTorsoRatio:
         totals.shoulderToTorsoRatio /
@@ -936,22 +1247,14 @@ export class FitAssistant
   }
 
 
-  // -----------------------------
-  // Pose validation
-  // -----------------------------
+  // -------------------------------------------------
+  // Landmark visibility
+  // -------------------------------------------------
 
   private checkTorsoVisibility(
-    landmarks: any[]
+    landmarks: NormalizedLandmark[]
   ): boolean {
 
-    /*
-     * Required MediaPipe landmarks:
-     *
-     * 11 = left shoulder
-     * 12 = right shoulder
-     * 23 = left hip
-     * 24 = right hip
-     */
     const requiredIndices =
       [11, 12, 23, 24];
 
@@ -977,15 +1280,16 @@ export class FitAssistant
   }
 
 
-  // -----------------------------
+  // -------------------------------------------------
   // Canvas rendering
-  // -----------------------------
+  // -------------------------------------------------
 
   private drawLandmarks(
     context:
       CanvasRenderingContext2D,
 
-    landmarks: any[],
+    landmarks:
+      NormalizedLandmark[],
 
     width: number,
 
@@ -1008,6 +1312,7 @@ export class FitAssistant
 
         context.beginPath();
 
+
         context.arc(
           x,
           y,
@@ -1016,14 +1321,15 @@ export class FitAssistant
           2 * Math.PI
         );
 
+
         context.fill();
       }
     );
 
 
     /*
-     * Highlight the torso region used by
-     * the prototype's proportion calculation.
+     * Highlight the torso landmarks used
+     * by the fitting calculation.
      */
     this.drawLine(
       context,
@@ -1066,9 +1372,11 @@ export class FitAssistant
     context:
       CanvasRenderingContext2D,
 
-    a: any,
+    a:
+      NormalizedLandmark,
 
-    b: any,
+    b:
+      NormalizedLandmark,
 
     width: number,
 
@@ -1104,6 +1412,10 @@ export class FitAssistant
     context.stroke();
   }
 
+
+  // -------------------------------------------------
+  // Cleanup
+  // -------------------------------------------------
 
   ngOnDestroy(): void {
 
