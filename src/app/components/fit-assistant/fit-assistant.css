@@ -314,3 +314,9 @@ button:disabled {
     font-size: 4.5rem;
   }
 }
+
+.development-note {
+  margin-top: -0.25rem;
+  color: #666;
+  font-size: 0.9rem;
+}

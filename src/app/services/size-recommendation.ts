@@ -2,44 +2,105 @@ import { Injectable } from '@angular/core';
 import { PoseMeasurements } from './measurement';
 
 export interface SizeResult {
-  recommendedSize: 'XS' | 'S' | 'M' | 'L' | 'XL';
-  confidence: 'Low' | 'Medium' | 'High';
+  recommendedSize:
+    | 'XS'
+    | 'S'
+    | 'M'
+    | 'L'
+    | 'XL';
+
+  confidence:
+    | 'Low'
+    | 'Medium'
+    | 'High';
+
   explanation: string;
+
+  // Development/calibration value.
+  // This is useful for testing how the rule-based size mapping behaves.
+  proportionScore: number;
 }
 
-
-// Design pattern / principle note: this is mainly Single Responsibility Principle.
-// The SizeRecommendation service is responsible for recommending a clothing size based on pose measurements.
 @Injectable({
   providedIn: 'root'
 })
 export class SizeRecommendation {
-  recommend(measurements: PoseMeasurements): SizeResult {
-    const shoulder = measurements.shoulderWidthRatio;
-    const hip = measurements.hipWidthRatio;
-    const torso = measurements.torsoLengthRatio;
 
-    const bodyScale = shoulder + hip + torso;
+  /**
+   * Produces a prototype T-shirt size recommendation from
+   * relative 2D torso proportions.
+   *
+   * The thresholds are currently provisional and are intended
+   * for prototype calibration rather than as universal sizing rules.
+   */
+  recommend(
+    measurements: PoseMeasurements
+  ): SizeResult {
 
-    let recommendedSize: SizeResult['recommendedSize'];
+    const {
+      shoulderToTorsoRatio,
+      hipToTorsoRatio,
+      shoulderToHipRatio
+    } = measurements;
 
-    if (bodyScale < 0.75) {
+    /**
+     * Weighted relative-proportion score.
+     *
+     * Shoulder and hip proportions are given the largest
+     * influence, while shoulder-to-hip balance contributes
+     * a smaller adjustment.
+     */
+    const proportionScore =
+      shoulderToTorsoRatio * 0.4 +
+      hipToTorsoRatio * 0.4 +
+      shoulderToHipRatio * 0.2;
+
+    console.log(
+      'Proportion score:',
+      proportionScore
+    );
+
+    let recommendedSize:
+      SizeResult['recommendedSize'];
+
+    /**
+     * PROVISIONAL SIZE BANDS
+     *
+     * These bands have been adjusted to better match the
+     * numerical scale produced by the current 2D ratio model.
+     *
+     * They still require further calibration using pilot testing
+     * and should not be presented as universal clothing standards.
+     */
+    if (proportionScore < 0.58) {
       recommendedSize = 'XS';
-    } else if (bodyScale < 0.9) {
+
+    } else if (proportionScore < 0.68) {
       recommendedSize = 'S';
-    } else if (bodyScale < 1.05) {
+
+    } else if (proportionScore < 0.78) {
       recommendedSize = 'M';
-    } else if (bodyScale < 1.2) {
+
+    } else if (proportionScore < 0.88) {
       recommendedSize = 'L';
+
     } else {
       recommendedSize = 'XL';
     }
 
     return {
       recommendedSize,
+
+      /*
+       * Medium is appropriate while the mapping remains
+       * an experimental rule-based prototype.
+       */
       confidence: 'Medium',
+
       explanation:
-        'This prototype uses relative shoulder width, hip width, and torso length detected from pose landmarks. It does not calculate exact body measurements.'
+        'This guidance is based on averaged relative torso proportions detected across multiple camera frames. It is intended as size-selection support rather than a guaranteed exact fit.',
+
+      proportionScore
     };
   }
 }
