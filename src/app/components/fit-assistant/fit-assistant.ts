@@ -108,48 +108,72 @@ export class FitAssistant
   // -------------------------------------------------
 
   /*
-   * These values correspond approximately to the guide
-   * drawn over the camera in fit-assistant.css.
-   *
-   * All coordinates are normalized:
-   *
-   * 0 = top / left of image
-   * 1 = bottom / right of image
-   *
-   * The visual guide:
-   *
-   * - begins around 17% from the top;
-   * - has a shoulder target around 29%;
-   * - has a hip target around 68%;
-   * - is centred horizontally.
-   *
-   * Fairly generous tolerances are used so participants
-   * do not have to match an exact pixel position.
+   * These normalized coordinates approximately correspond
+   * to the visual positioning guide in the CSS.
    */
-
   private readonly shoulderTargetY = 0.29;
+
   private readonly shoulderToleranceY = 0.09;
 
   private readonly hipTargetY = 0.68;
+
   private readonly hipToleranceY = 0.10;
 
   private readonly centreTargetX = 0.50;
+
   private readonly centreToleranceX = 0.12;
 
+
   /*
-   * The torso-length check remains as a secondary safeguard.
+   * Secondary scale constraint.
    *
-   * It is no longer the sole positioning criterion.
+   * This prevents very small or very large torso detections
+   * from being accepted even if the landmarks happen to
+   * align with the guide.
    */
   private readonly minimumTorsoLength = 0.28;
+
   private readonly maximumTorsoLength = 0.52;
 
 
   // -------------------------------------------------
-  // Capture state
+  // Analysis workflow state
   // -------------------------------------------------
 
-  private automaticAnalysisCompleted = false;
+  /*
+   * True after at least one successful recommendation.
+   */
+  private hasCompletedAnalysis = false;
+
+
+  /*
+   * After an analysis, the system deliberately waits for
+   * the participant to leave the valid positioning state.
+   *
+   * This prevents continuous automatic recommendations
+   * while the person remains standing still.
+   */
+  private waitingForReposition = false;
+
+
+  /*
+   * Becomes true once the participant has moved outside
+   * the valid positioning state after an analysis.
+   *
+   * Returning to the guide then begins a fresh automatic
+   * measurement cycle.
+   */
+  private repositionDetected = false;
+
+
+  /*
+   * Manual Analyse Fit remains available as a fallback.
+   *
+   * When true, fresh measurements are collected during
+   * the manual three-second countdown.
+   */
+  private manualReanalysisInProgress = false;
+
 
   private countdownInProgress = false;
 
@@ -223,7 +247,7 @@ export class FitAssistant
 
 
       /*
-       * Clean up any previous camera session first.
+       * Clean up any previous camera session.
        */
       this.stopCamera();
 
@@ -235,7 +259,15 @@ export class FitAssistant
 
       this.sizeResult = null;
 
-      this.automaticAnalysisCompleted = false;
+
+      // Reset workflow.
+      this.hasCompletedAnalysis = false;
+
+      this.waitingForReposition = false;
+
+      this.repositionDetected = false;
+
+      this.manualReanalysisInProgress = false;
 
 
       const video =
@@ -268,7 +300,7 @@ export class FitAssistant
 
 
       /*
-       * Wait until browser video dimensions are available.
+       * Wait for the browser to expose the video dimensions.
        */
       await new Promise<void>(
         (resolve) => {
@@ -334,6 +366,13 @@ export class FitAssistant
     this.cancelCountdown();
 
 
+    this.manualReanalysisInProgress = false;
+
+    this.waitingForReposition = false;
+
+    this.repositionDetected = false;
+
+
     if (
       this.animationFrameId !== null
     ) {
@@ -376,6 +415,9 @@ export class FitAssistant
 
     if (canvas) {
 
+      /*
+       * Resetting the width clears all canvas drawings.
+       */
       canvas.width =
         canvas.width;
     }
@@ -388,7 +430,7 @@ export class FitAssistant
 
 
   // -------------------------------------------------
-  // Manual analysis
+  // Manual fallback analysis
   // -------------------------------------------------
 
   analyseFit(): void {
@@ -412,24 +454,24 @@ export class FitAssistant
 
 
     if (
-      this.measurementSamples.length <
-      this.minimumSamplesForAnalysis
-    ) {
-
-      this.guidanceMessage.set(
-        'Hold still briefly while enough stable measurements are collected.'
-      );
-
-      return;
-    }
-
-
-    if (
       this.countdownInProgress ||
       this.isAnalysing()
     ) {
       return;
     }
+
+
+    /*
+     * Manual analysis always starts with a fresh
+     * measurement buffer.
+     *
+     * The participant therefore receives a genuinely
+     * new measurement rather than one influenced by
+     * previous frames.
+     */
+    this.measurementSamples = [];
+
+    this.manualReanalysisInProgress = true;
 
 
     this.startManualCountdown();
@@ -540,11 +582,6 @@ export class FitAssistant
 
         } else {
 
-          /*
-           * Position validation now uses the actual
-           * shoulder and hip landmarks in relation
-           * to the visible positioning guide.
-           */
           const positionCheck =
             this.checkGuideAlignment(
               landmarks,
@@ -592,7 +629,7 @@ export class FitAssistant
 
 
   // -------------------------------------------------
-  // Guide validation
+  // Positioning guide validation
   // -------------------------------------------------
 
   private checkGuideAlignment(
@@ -641,10 +678,6 @@ export class FitAssistant
       ) / 2;
 
 
-    /*
-     * Use the midpoint between shoulder centre
-     * and hip centre as the approximate torso centre.
-     */
     const torsoCentreX =
       (
         shoulderMidX +
@@ -653,7 +686,7 @@ export class FitAssistant
 
 
     // -----------------------------
-    // Distance / scale
+    // Camera distance / scale
     // -----------------------------
 
     if (
@@ -683,7 +716,7 @@ export class FitAssistant
 
 
     // -----------------------------
-    // Vertical shoulder alignment
+    // Shoulder alignment
     // -----------------------------
 
     if (
@@ -715,7 +748,7 @@ export class FitAssistant
 
 
     // -----------------------------
-    // Vertical hip alignment
+    // Hip alignment
     // -----------------------------
 
     if (
@@ -769,76 +802,157 @@ export class FitAssistant
     return {
       valid: true,
       message:
-        'Position looks good. Hold still while measurements are collected.'
+        'Position looks good.'
     };
   }
 
 
   // -------------------------------------------------
-  // Valid / invalid positioning
+  // Valid positioning
   // -------------------------------------------------
 
   private handleValidPosition(
     measurements: PoseMeasurements
   ): void {
 
-    this.addMeasurementSample(
-      measurements
-    );
-
-
     /*
-     * Automatically start the first analysis
-     * after enough valid frames have been collected.
+     * MANUAL FALLBACK
+     *
+     * If the user explicitly selected Analyse Fit,
+     * collect fresh measurements throughout the
+     * three-second countdown.
      */
     if (
-      !this.automaticAnalysisCompleted &&
-      !this.countdownInProgress &&
-      this.measurementSamples.length >=
-        this.minimumSamplesForAnalysis
+      this.manualReanalysisInProgress
     ) {
 
-      this.startAutomaticCountdown();
+      this.addMeasurementSample(
+        measurements
+      );
 
       return;
     }
 
 
     /*
-     * After the first automatic analysis,
-     * the user may perform another manually.
+     * AFTER AN ANALYSIS
+     *
+     * Do not immediately analyse the person again while
+     * they remain standing in exactly the same valid pose.
+     *
+     * We first require them to leave the valid position.
      */
     if (
-      !this.countdownInProgress &&
-      this.automaticAnalysisCompleted
+      this.hasCompletedAnalysis &&
+      this.waitingForReposition &&
+      !this.repositionDetected
     ) {
 
       this.captureState.set(
-        'ready'
+        'complete'
       );
 
 
       this.guidanceMessage.set(
-        'Position looks good. You can analyse your fit again.'
+        'Recommendation complete. Move out of position and return to the guide to analyse again.'
       );
 
       return;
     }
 
 
-    if (!this.countdownInProgress) {
+    /*
+     * FIRST ANALYSIS
+     */
+    if (!this.hasCompletedAnalysis) {
 
-      this.captureState.set(
-        'positioning'
+      this.addMeasurementSample(
+        measurements
       );
 
 
-      this.guidanceMessage.set(
-        'Position looks good. Hold still while measurements are collected.'
+      if (
+        !this.countdownInProgress &&
+        this.measurementSamples.length >=
+          this.minimumSamplesForAnalysis
+      ) {
+
+        this.startAutomaticCountdown(
+          false
+        );
+
+        return;
+      }
+
+
+      if (!this.countdownInProgress) {
+
+        this.captureState.set(
+          'positioning'
+        );
+
+
+        this.guidanceMessage.set(
+          'Position looks good. Hold still while measurements are collected.'
+        );
+      }
+
+
+      return;
+    }
+
+
+    /*
+     * HANDS-FREE RE-ANALYSIS
+     *
+     * The user has already moved out of the guide and has
+     * now returned to a valid position.
+     *
+     * Measurements were cleared when repositioning was
+     * detected, so this is a completely fresh capture.
+     */
+    if (
+      this.waitingForReposition &&
+      this.repositionDetected
+    ) {
+
+      this.addMeasurementSample(
+        measurements
       );
+
+
+      if (
+        !this.countdownInProgress &&
+        this.measurementSamples.length >=
+          this.minimumSamplesForAnalysis
+      ) {
+
+        this.startAutomaticCountdown(
+          true
+        );
+
+        return;
+      }
+
+
+      if (!this.countdownInProgress) {
+
+        this.captureState.set(
+          'ready'
+        );
+
+
+        this.guidanceMessage.set(
+          'Position looks good. Hold still for another analysis.'
+        );
+      }
     }
   }
 
+
+  // -------------------------------------------------
+  // Invalid positioning
+  // -------------------------------------------------
 
   private handleInvalidPosition(
     message: string
@@ -847,6 +961,10 @@ export class FitAssistant
     this.isPositionValid.set(false);
 
 
+    /*
+     * Leaving a valid position during an analysis
+     * countdown cancels that capture.
+     */
     if (
       this.countdownInProgress
     ) {
@@ -855,9 +973,79 @@ export class FitAssistant
     }
 
 
+    /*
+     * If a manual capture was interrupted, stop the
+     * manual workflow and allow the normal hands-free
+     * repositioning workflow to take over.
+     */
+    if (
+      this.manualReanalysisInProgress
+    ) {
+
+      this.manualReanalysisInProgress = false;
+
+      this.measurementSamples = [];
+
+
+      if (this.hasCompletedAnalysis) {
+
+        this.waitingForReposition = true;
+
+        this.repositionDetected = true;
+      }
+    }
+
+
+    /*
+     * Detect deliberate repositioning after an analysis.
+     *
+     * The first time the user leaves the valid guide,
+     * clear all previous samples.
+     */
+    if (
+      this.hasCompletedAnalysis &&
+      this.waitingForReposition &&
+      !this.repositionDetected
+    ) {
+
+      this.repositionDetected = true;
+
+      this.measurementSamples = [];
+
+
+      this.captureState.set(
+        'positioning'
+      );
+
+
+      this.guidanceMessage.set(
+        'Reposition yourself inside the guide. The next analysis will begin automatically.'
+      );
+
+      return;
+    }
+
+
     this.captureState.set(
       'positioning'
     );
+
+
+    /*
+     * Once repositioning has already been detected,
+     * continue showing useful positioning guidance.
+     */
+    if (
+      this.hasCompletedAnalysis &&
+      this.repositionDetected
+    ) {
+
+      this.guidanceMessage.set(
+        message
+      );
+
+      return;
+    }
 
 
     this.guidanceMessage.set(
@@ -865,6 +1053,10 @@ export class FitAssistant
     );
   }
 
+
+  // -------------------------------------------------
+  // Missing torso
+  // -------------------------------------------------
 
   private handleMissingTorso():
     void {
@@ -879,6 +1071,44 @@ export class FitAssistant
     ) {
 
       this.cancelCountdown();
+    }
+
+
+    if (
+      this.manualReanalysisInProgress
+    ) {
+
+      this.manualReanalysisInProgress = false;
+
+      this.measurementSamples = [];
+    }
+
+
+    /*
+     * Leaving the camera frame also counts as deliberate
+     * repositioning after a completed recommendation.
+     */
+    if (
+      this.hasCompletedAnalysis &&
+      this.waitingForReposition &&
+      !this.repositionDetected
+    ) {
+
+      this.repositionDetected = true;
+
+      this.measurementSamples = [];
+
+
+      this.captureState.set(
+        'positioning'
+      );
+
+
+      this.guidanceMessage.set(
+        'Reposition yourself inside the guide. The next analysis will begin automatically.'
+      );
+
+      return;
     }
 
 
@@ -900,12 +1130,12 @@ export class FitAssistant
   // Automatic countdown
   // -------------------------------------------------
 
-  private startAutomaticCountdown():
-    void {
+  private startAutomaticCountdown(
+    isRepeat: boolean
+  ): void {
 
     if (
-      this.countdownInProgress ||
-      this.automaticAnalysisCompleted
+      this.countdownInProgress
     ) {
       return;
     }
@@ -918,12 +1148,16 @@ export class FitAssistant
     );
 
 
-    this.runAutomaticCountdown(3);
+    this.runAutomaticCountdown(
+      3,
+      isRepeat
+    );
   }
 
 
   private runAutomaticCountdown(
-    value: number
+    value: number,
+    isRepeat: boolean
   ): void {
 
     if (
@@ -951,11 +1185,24 @@ export class FitAssistant
 
 
     this.guidanceMessage.set(
+
       value > 0
 
-        ? `Hold still. First analysis in ${value}...`
+        ? (
+          isRepeat
 
-        : 'Analysing your T-shirt fit...'
+            ? `Hold still. Re-analysing in ${value}...`
+
+            : `Hold still. First analysis in ${value}...`
+        )
+
+        : (
+          isRepeat
+
+            ? 'Re-analysing your T-shirt fit...'
+
+            : 'Analysing your T-shirt fit...'
+        )
     );
 
 
@@ -965,7 +1212,28 @@ export class FitAssistant
 
       this.countdown.set(null);
 
-      this.automaticAnalysisCompleted = true;
+
+      /*
+       * There should normally be more than enough frames,
+       * but do not produce a recommendation if the device
+       * has failed to collect the minimum number.
+       */
+      if (
+        this.measurementSamples.length <
+        this.minimumSamplesForAnalysis
+      ) {
+
+        this.captureState.set(
+          'positioning'
+        );
+
+
+        this.guidanceMessage.set(
+          'Not enough stable measurements were collected. Hold still and try again.'
+        );
+
+        return;
+      }
 
 
       this.performAnalysis();
@@ -978,7 +1246,8 @@ export class FitAssistant
       setTimeout(
         () =>
           this.runAutomaticCountdown(
-            value - 1
+            value - 1,
+            isRepeat
           ),
         1000
       );
@@ -992,7 +1261,9 @@ export class FitAssistant
   private startManualCountdown():
     void {
 
-    if (this.countdownInProgress) {
+    if (
+      this.countdownInProgress
+    ) {
       return;
     }
 
@@ -1020,6 +1291,11 @@ export class FitAssistant
 
       this.cancelCountdown();
 
+      this.manualReanalysisInProgress = false;
+
+      this.measurementSamples = [];
+
+
       this.captureState.set(
         'positioning'
       );
@@ -1037,11 +1313,12 @@ export class FitAssistant
 
 
     this.guidanceMessage.set(
+
       value > 0
 
-        ? `Hold still. Re-analysing in ${value}...`
+        ? `Hold still. Manual analysis in ${value}...`
 
-        : 'Re-analysing your T-shirt fit...'
+        : 'Analysing your T-shirt fit...'
     );
 
 
@@ -1050,6 +1327,27 @@ export class FitAssistant
       this.countdownInProgress = false;
 
       this.countdown.set(null);
+
+
+      if (
+        this.measurementSamples.length <
+        this.minimumSamplesForAnalysis
+      ) {
+
+        this.manualReanalysisInProgress = false;
+
+
+        this.captureState.set(
+          'positioning'
+        );
+
+
+        this.guidanceMessage.set(
+          'Not enough stable measurements were collected. Hold still and try again.'
+        );
+
+        return;
+      }
 
 
       this.performAnalysis();
@@ -1129,6 +1427,24 @@ export class FitAssistant
         );
 
 
+    /*
+     * At least one successful recommendation now exists.
+     */
+    this.hasCompletedAnalysis = true;
+
+
+    /*
+     * From this point onward, automatic analysis must
+     * wait until the participant deliberately moves out
+     * of the valid positioning state.
+     */
+    this.waitingForReposition = true;
+
+    this.repositionDetected = false;
+
+    this.manualReanalysisInProgress = false;
+
+
     this.isAnalysing.set(false);
 
     this.captureState.set(
@@ -1137,7 +1453,7 @@ export class FitAssistant
 
 
     this.guidanceMessage.set(
-      'Analysis complete. Reposition yourself and select Analyse Fit if you want to try again.'
+      'Recommendation complete. Move out of position and return to the guide to analyse again.'
     );
   }
 
@@ -1156,7 +1472,7 @@ export class FitAssistant
 
 
     /*
-     * Keep only the most recent valid samples.
+     * Rolling buffer keeps only recent valid frames.
      */
     if (
       this.measurementSamples.length >
@@ -1328,8 +1644,8 @@ export class FitAssistant
 
 
     /*
-     * Highlight the torso landmarks used
-     * by the fitting calculation.
+     * Highlight the torso region used by
+     * the proportion calculations.
      */
     this.drawLine(
       context,
