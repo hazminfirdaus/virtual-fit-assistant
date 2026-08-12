@@ -15,10 +15,27 @@
   </div>
 
 
+  <!-- Portrait mobile warning -->
+  <div
+    class="orientation-warning"
+    *ngIf="isMobileDevice() && isPortraitMode()"
+  >
+
+    <strong>
+      Landscape orientation required
+    </strong>
+
+    <p>
+      Please rotate your phone or tablet to landscape orientation
+      before using the Virtual Fit Assistant.
+    </p>
+
+  </div>
+
+
   <div class="workspace">
 
 
-    <!-- Camera and positioning -->
     <div class="camera-card">
 
       <h2>
@@ -27,16 +44,27 @@
 
 
       <p class="instructions">
-        Face the camera directly and keep both shoulders and both hips
-        visible. Align your torso with the positioning guide and hold
-        still. Start the camera to begin the first analysis.
-
-        To reanalyse, move out slightly from the positioning guide, then return to a valid position and hold still. 
-        A fresh analysis will begin automatically.
+        For best results, use a laptop or desktop computer, or rotate
+        your phone or tablet to landscape orientation.
       </p>
 
 
-      <div class="video-wrapper">
+      <p class="instructions alignment-instruction">
+        Align your
+        <strong>shoulders with the upper horizontal line</strong>
+        and your
+        <strong>hips with the lower horizontal line</strong>.
+        Keep your torso centred inside the guide and hold still.
+      </p>
+
+
+      <div
+        class="video-wrapper"
+        [class.video-disabled]="
+          isMobileDevice() &&
+          isPortraitMode()
+        "
+      >
 
         <video
           #videoElement
@@ -57,18 +85,53 @@
           [class.guide-ready]="
             isCameraActive() &&
             isTorsoVisible() &&
-            isPositionValid()
+            isPositionValid() &&
+            !isPortraitMode()
           "
         >
 
           <div class="guide-label">
-            Position torso here
+            Align torso here
+          </div>
+
+
+          <span class="shoulder-guide-label">
+            Shoulders
+          </span>
+
+
+          <span class="hip-guide-label">
+            Hips
+          </span>
+
+        </div>
+
+
+        <!-- Portrait overlay -->
+        <div
+          class="portrait-overlay"
+          *ngIf="
+            isMobileDevice() &&
+            isPortraitMode()
+          "
+        >
+
+          <div>
+
+            <strong>
+              Rotate device
+            </strong>
+
+            <p>
+              Landscape mode is required for fitting analysis.
+            </p>
+
           </div>
 
         </div>
 
 
-        <!-- 3-second capture countdown -->
+        <!-- Countdown -->
         <div
           class="camera-countdown"
 
@@ -84,7 +147,6 @@
       </div>
 
 
-      <!-- Capture feedback -->
       <div
         class="capture-status"
 
@@ -92,6 +154,7 @@
           isCameraActive() &&
           isTorsoVisible() &&
           isPositionValid() &&
+          !isPortraitMode() &&
           captureState() !== 'countdown' &&
           captureState() !== 'complete'
         "
@@ -100,7 +163,8 @@
           isCameraActive() &&
           (
             !isTorsoVisible() ||
-            !isPositionValid()
+            !isPositionValid() ||
+            isPortraitMode()
           )
         "
 
@@ -145,7 +209,8 @@
 
             {{
               isTorsoVisible() &&
-              isPositionValid()
+              isPositionValid() &&
+              !isPortraitMode()
 
                 ? 'Ready ✓'
 
@@ -176,7 +241,6 @@
       </div>
 
 
-      <!-- Controls -->
       <div class="controls">
 
         <button
@@ -186,7 +250,11 @@
 
           [disabled]="
             isCameraActive() ||
-            !isModelReady()
+            !isModelReady() ||
+            (
+              isMobileDevice() &&
+              isPortraitMode()
+            )
           "
         >
 
@@ -210,12 +278,6 @@
         </button>
 
 
-        <!--
-          Manual fallback only.
-
-          Normal first analysis and re-analysis can now
-          happen without touching the device.
-        -->
         <button
           type="button"
 
@@ -228,6 +290,7 @@
             !isTorsoVisible() ||
             !isPositionValid() ||
             isAnalysing() ||
+            isPortraitMode() ||
             captureState() === 'countdown'
           "
         >
@@ -253,7 +316,6 @@
     </div>
 
 
-    <!-- Recommendation -->
     <div class="result-card">
 
       <h2>
@@ -274,9 +336,7 @@
 
 
         <div class="size">
-
           {{ sizeResult.recommendedSize }}
-
         </div>
 
 
@@ -304,9 +364,9 @@
 
 
           <p>
-            Move out of the positioning guide, then return
-            to a valid position and hold still. A fresh
-            analysis will begin automatically.
+            Move out of the positioning guide, then return to a valid
+            position and hold still. A fresh analysis will begin
+            automatically.
           </p>
 
 
@@ -321,9 +381,7 @@
       </ng-container>
 
 
-      <ng-template
-        #noResult
-      >
+      <ng-template #noResult>
 
         <div class="empty-result">
 
@@ -333,9 +391,8 @@
 
 
           <p>
-            Start the camera and position your torso within
-            the guide. The first analysis will begin
-            automatically.
+            Start the camera and align your shoulders and hips
+            with the positioning guide.
           </p>
 
         </div>
@@ -347,7 +404,6 @@
   </div>
 
 
-  <!-- Development / calibration information -->
   <div
     class="measurements-card"
 
@@ -370,86 +426,68 @@
     <ul>
 
       <li>
-
         Shoulder width:
-
         <strong>
           {{
             measurements.shoulderWidth
               | number:'1.3-3'
           }}
         </strong>
-
       </li>
 
 
       <li>
-
         Hip width:
-
         <strong>
           {{
             measurements.hipWidth
               | number:'1.3-3'
           }}
         </strong>
-
       </li>
 
 
       <li>
-
         Torso length:
-
         <strong>
           {{
             measurements.torsoLength
               | number:'1.3-3'
           }}
         </strong>
-
       </li>
 
 
       <li>
-
         Shoulder-to-torso ratio:
-
         <strong>
           {{
             measurements.shoulderToTorsoRatio
               | number:'1.3-3'
           }}
         </strong>
-
       </li>
 
 
       <li>
-
         Hip-to-torso ratio:
-
         <strong>
           {{
             measurements.hipToTorsoRatio
               | number:'1.3-3'
           }}
         </strong>
-
       </li>
 
 
       <li>
-
         Shoulder-to-hip ratio:
-
         <strong>
           {{
             measurements.shoulderToHipRatio
               | number:'1.3-3'
           }}
         </strong>
-
       </li>
 
 
@@ -458,16 +496,13 @@
           sizeResult
         "
       >
-
         Proportion score:
-
         <strong>
           {{
             sizeResult.proportionScore
               | number:'1.3-3'
           }}
         </strong>
-
       </li>
 
     </ul>

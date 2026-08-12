@@ -2,6 +2,7 @@ import {
   AfterViewInit,
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   ViewChild,
   signal
@@ -69,6 +70,10 @@ export class FitAssistant
 
   isAnalysing = signal(false);
 
+  isMobileDevice = signal(false);
+
+  isPortraitMode = signal(false);
+
   captureState =
     signal<CaptureState>('idle');
 
@@ -107,10 +112,6 @@ export class FitAssistant
   // Positioning guide
   // -------------------------------------------------
 
-  /*
-   * These normalized coordinates approximately correspond
-   * to the visual positioning guide in the CSS.
-   */
   private readonly shoulderTargetY = 0.29;
 
   private readonly shoulderToleranceY = 0.09;
@@ -123,14 +124,6 @@ export class FitAssistant
 
   private readonly centreToleranceX = 0.12;
 
-
-  /*
-   * Secondary scale constraint.
-   *
-   * This prevents very small or very large torso detections
-   * from being accepted even if the landmarks happen to
-   * align with the guide.
-   */
   private readonly minimumTorsoLength = 0.28;
 
   private readonly maximumTorsoLength = 0.52;
@@ -140,40 +133,13 @@ export class FitAssistant
   // Analysis workflow state
   // -------------------------------------------------
 
-  /*
-   * True after at least one successful recommendation.
-   */
   private hasCompletedAnalysis = false;
 
-
-  /*
-   * After an analysis, the system deliberately waits for
-   * the participant to leave the valid positioning state.
-   *
-   * This prevents continuous automatic recommendations
-   * while the person remains standing still.
-   */
   private waitingForReposition = false;
 
-
-  /*
-   * Becomes true once the participant has moved outside
-   * the valid positioning state after an analysis.
-   *
-   * Returning to the guide then begins a fresh automatic
-   * measurement cycle.
-   */
   private repositionDetected = false;
 
-
-  /*
-   * Manual Analyse Fit remains available as a fallback.
-   *
-   * When true, fresh measurements are collected during
-   * the manual three-second countdown.
-   */
   private manualReanalysisInProgress = false;
-
 
   private countdownInProgress = false;
 
@@ -195,11 +161,13 @@ export class FitAssistant
 
 
   // -------------------------------------------------
-  // MediaPipe initialisation
+  // Initialisation
   // -------------------------------------------------
 
   async ngAfterViewInit():
     Promise<void> {
+
+    this.updateDeviceState();
 
     try {
 
@@ -228,6 +196,103 @@ export class FitAssistant
 
 
   // -------------------------------------------------
+  // Device orientation handling
+  // -------------------------------------------------
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+
+    this.updateDeviceState();
+  }
+
+
+  @HostListener('window:orientationchange')
+  onOrientationChange(): void {
+
+    setTimeout(
+      () => this.updateDeviceState(),
+      100
+    );
+  }
+
+
+  private updateDeviceState(): void {
+
+    /*
+     * We use viewport width as a practical proxy for
+     * identifying phone/tablet-sized devices.
+     */
+    const mobile =
+      window.innerWidth <= 900;
+
+
+    const portrait =
+      window.innerHeight >
+      window.innerWidth;
+
+
+    this.isMobileDevice.set(
+      mobile
+    );
+
+
+    this.isPortraitMode.set(
+      mobile &&
+      portrait
+    );
+
+
+    /*
+     * If a mobile user rotates into portrait while
+     * the camera is running, cancel any active capture.
+     */
+    if (
+      this.isCameraActive() &&
+      this.isPortraitMode()
+    ) {
+
+      this.cancelCountdown();
+
+      this.isPositionValid.set(false);
+
+      this.captureState.set(
+        'positioning'
+      );
+
+
+      this.guidanceMessage.set(
+        'Please rotate your device to landscape orientation before continuing.'
+      );
+    }
+
+
+    /*
+     * When the user returns to landscape, restore
+     * positioning guidance.
+     */
+    if (
+      this.isCameraActive() &&
+      !this.isPortraitMode()
+    ) {
+
+      this.guidanceMessage.set(
+        'Align your shoulders with the upper horizontal line and your hips with the lower horizontal line.'
+      );
+    }
+  }
+
+
+  private canAnalyseInCurrentOrientation():
+    boolean {
+
+    return !(
+      this.isMobileDevice() &&
+      this.isPortraitMode()
+    );
+  }
+
+
+  // -------------------------------------------------
   // Camera
   // -------------------------------------------------
 
@@ -235,6 +300,21 @@ export class FitAssistant
     Promise<void> {
 
     try {
+
+      this.updateDeviceState();
+
+
+      if (
+        !this.canAnalyseInCurrentOrientation()
+      ) {
+
+        this.guidanceMessage.set(
+          'Please rotate your device to landscape orientation before starting the camera.'
+        );
+
+        return;
+      }
+
 
       if (!this.isModelReady()) {
 
@@ -246,13 +326,9 @@ export class FitAssistant
       }
 
 
-      /*
-       * Clean up any previous camera session.
-       */
       this.stopCamera();
 
 
-      // Reset fitting-session data.
       this.measurementSamples = [];
 
       this.measurements = null;
@@ -260,7 +336,6 @@ export class FitAssistant
       this.sizeResult = null;
 
 
-      // Reset workflow.
       this.hasCompletedAnalysis = false;
 
       this.waitingForReposition = false;
@@ -299,9 +374,6 @@ export class FitAssistant
         this.stream;
 
 
-      /*
-       * Wait for the browser to expose the video dimensions.
-       */
       await new Promise<void>(
         (resolve) => {
 
@@ -328,7 +400,7 @@ export class FitAssistant
 
 
       this.guidanceMessage.set(
-        'Move into the guide and align your shoulders and hips with the guide lines.'
+        'Align your shoulders with the upper horizontal line and your hips with the lower horizontal line.'
       );
 
 
@@ -415,9 +487,6 @@ export class FitAssistant
 
     if (canvas) {
 
-      /*
-       * Resetting the width clears all canvas drawings.
-       */
       canvas.width =
         canvas.width;
     }
@@ -430,10 +499,22 @@ export class FitAssistant
 
 
   // -------------------------------------------------
-  // Manual fallback analysis
+  // Manual fallback
   // -------------------------------------------------
 
   analyseFit(): void {
+
+    if (
+      !this.canAnalyseInCurrentOrientation()
+    ) {
+
+      this.guidanceMessage.set(
+        'Please rotate your device to landscape orientation before analysing.'
+      );
+
+      return;
+    }
+
 
     if (!this.isCameraActive()) {
       return;
@@ -446,7 +527,7 @@ export class FitAssistant
     ) {
 
       this.guidanceMessage.set(
-        'Align your shoulders and hips with the positioning guide before analysing.'
+        'Align your shoulders with the upper line and your hips with the lower line before analysing.'
       );
 
       return;
@@ -461,14 +542,6 @@ export class FitAssistant
     }
 
 
-    /*
-     * Manual analysis always starts with a fresh
-     * measurement buffer.
-     *
-     * The participant therefore receives a genuinely
-     * new measurement rather than one influenced by
-     * previous frames.
-     */
     this.measurementSamples = [];
 
     this.manualReanalysisInProgress = true;
@@ -498,6 +571,39 @@ export class FitAssistant
       !context ||
       !this.isCameraActive()
     ) {
+      return;
+    }
+
+
+    if (
+      !this.canAnalyseInCurrentOrientation()
+    ) {
+
+      context.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+
+      this.isPositionValid.set(false);
+
+      this.captureState.set(
+        'positioning'
+      );
+
+
+      this.guidanceMessage.set(
+        'Please rotate your device to landscape orientation before continuing.'
+      );
+
+
+      this.animationFrameId =
+        requestAnimationFrame(
+          () => this.detectPose()
+        );
+
       return;
     }
 
@@ -629,7 +735,7 @@ export class FitAssistant
 
 
   // -------------------------------------------------
-  // Positioning guide validation
+  // Guide validation
   // -------------------------------------------------
 
   private checkGuideAlignment(
@@ -685,10 +791,6 @@ export class FitAssistant
       ) / 2;
 
 
-    // -----------------------------
-    // Camera distance / scale
-    // -----------------------------
-
     if (
       measurements.torsoLength <
       this.minimumTorsoLength
@@ -715,10 +817,6 @@ export class FitAssistant
     }
 
 
-    // -----------------------------
-    // Shoulder alignment
-    // -----------------------------
-
     if (
       shoulderMidY <
       this.shoulderTargetY -
@@ -728,7 +826,7 @@ export class FitAssistant
       return {
         valid: false,
         message:
-          'Move slightly lower so your shoulders align with the upper guide line.'
+          'Move slightly lower so your shoulders align with the upper horizontal line.'
       };
     }
 
@@ -742,14 +840,10 @@ export class FitAssistant
       return {
         valid: false,
         message:
-          'Move slightly higher so your shoulders align with the upper guide line.'
+          'Move slightly higher so your shoulders align with the upper horizontal line.'
       };
     }
 
-
-    // -----------------------------
-    // Hip alignment
-    // -----------------------------
 
     if (
       hipMidY <
@@ -760,7 +854,7 @@ export class FitAssistant
       return {
         valid: false,
         message:
-          'Move slightly lower so your hips align with the lower guide line.'
+          'Move slightly lower so your hips align with the lower horizontal line.'
       };
     }
 
@@ -774,14 +868,10 @@ export class FitAssistant
       return {
         valid: false,
         message:
-          'Move slightly higher so your hips align with the lower guide line.'
+          'Move slightly higher so your hips align with the lower horizontal line.'
       };
     }
 
-
-    // -----------------------------
-    // Horizontal centring
-    // -----------------------------
 
     if (
       Math.abs(
@@ -808,20 +898,13 @@ export class FitAssistant
 
 
   // -------------------------------------------------
-  // Valid positioning
+  // Valid position handling
   // -------------------------------------------------
 
   private handleValidPosition(
     measurements: PoseMeasurements
   ): void {
 
-    /*
-     * MANUAL FALLBACK
-     *
-     * If the user explicitly selected Analyse Fit,
-     * collect fresh measurements throughout the
-     * three-second countdown.
-     */
     if (
       this.manualReanalysisInProgress
     ) {
@@ -834,14 +917,6 @@ export class FitAssistant
     }
 
 
-    /*
-     * AFTER AN ANALYSIS
-     *
-     * Do not immediately analyse the person again while
-     * they remain standing in exactly the same valid pose.
-     *
-     * We first require them to leave the valid position.
-     */
     if (
       this.hasCompletedAnalysis &&
       this.waitingForReposition &&
@@ -861,9 +936,6 @@ export class FitAssistant
     }
 
 
-    /*
-     * FIRST ANALYSIS
-     */
     if (!this.hasCompletedAnalysis) {
 
       this.addMeasurementSample(
@@ -902,15 +974,6 @@ export class FitAssistant
     }
 
 
-    /*
-     * HANDS-FREE RE-ANALYSIS
-     *
-     * The user has already moved out of the guide and has
-     * now returned to a valid position.
-     *
-     * Measurements were cleared when repositioning was
-     * detected, so this is a completely fresh capture.
-     */
     if (
       this.waitingForReposition &&
       this.repositionDetected
@@ -961,10 +1024,6 @@ export class FitAssistant
     this.isPositionValid.set(false);
 
 
-    /*
-     * Leaving a valid position during an analysis
-     * countdown cancels that capture.
-     */
     if (
       this.countdownInProgress
     ) {
@@ -973,11 +1032,6 @@ export class FitAssistant
     }
 
 
-    /*
-     * If a manual capture was interrupted, stop the
-     * manual workflow and allow the normal hands-free
-     * repositioning workflow to take over.
-     */
     if (
       this.manualReanalysisInProgress
     ) {
@@ -996,12 +1050,6 @@ export class FitAssistant
     }
 
 
-    /*
-     * Detect deliberate repositioning after an analysis.
-     *
-     * The first time the user leaves the valid guide,
-     * clear all previous samples.
-     */
     if (
       this.hasCompletedAnalysis &&
       this.waitingForReposition &&
@@ -1029,23 +1077,6 @@ export class FitAssistant
     this.captureState.set(
       'positioning'
     );
-
-
-    /*
-     * Once repositioning has already been detected,
-     * continue showing useful positioning guidance.
-     */
-    if (
-      this.hasCompletedAnalysis &&
-      this.repositionDetected
-    ) {
-
-      this.guidanceMessage.set(
-        message
-      );
-
-      return;
-    }
 
 
     this.guidanceMessage.set(
@@ -1084,10 +1115,6 @@ export class FitAssistant
     }
 
 
-    /*
-     * Leaving the camera frame also counts as deliberate
-     * repositioning after a completed recommendation.
-     */
     if (
       this.hasCompletedAnalysis &&
       this.waitingForReposition &&
@@ -1161,6 +1188,7 @@ export class FitAssistant
   ): void {
 
     if (
+      !this.canAnalyseInCurrentOrientation() ||
       !this.isCameraActive() ||
       !this.isTorsoVisible() ||
       !this.isPositionValid()
@@ -1174,7 +1202,9 @@ export class FitAssistant
 
 
       this.guidanceMessage.set(
-        'Return to the positioning guide.'
+        this.isPortraitMode()
+          ? 'Please rotate your device to landscape orientation before continuing.'
+          : 'Return to the positioning guide.'
       );
 
       return;
@@ -1213,11 +1243,6 @@ export class FitAssistant
       this.countdown.set(null);
 
 
-      /*
-       * There should normally be more than enough frames,
-       * but do not produce a recommendation if the device
-       * has failed to collect the minimum number.
-       */
       if (
         this.measurementSamples.length <
         this.minimumSamplesForAnalysis
@@ -1284,6 +1309,7 @@ export class FitAssistant
   ): void {
 
     if (
+      !this.canAnalyseInCurrentOrientation() ||
       !this.isCameraActive() ||
       !this.isTorsoVisible() ||
       !this.isPositionValid()
@@ -1302,7 +1328,9 @@ export class FitAssistant
 
 
       this.guidanceMessage.set(
-        'Return to the positioning guide.'
+        this.isPortraitMode()
+          ? 'Please rotate your device to landscape orientation before continuing.'
+          : 'Return to the positioning guide.'
       );
 
       return;
@@ -1389,7 +1417,7 @@ export class FitAssistant
 
 
   // -------------------------------------------------
-  // Fit analysis
+  // Analysis
   // -------------------------------------------------
 
   private performAnalysis():
@@ -1427,17 +1455,8 @@ export class FitAssistant
         );
 
 
-    /*
-     * At least one successful recommendation now exists.
-     */
     this.hasCompletedAnalysis = true;
 
-
-    /*
-     * From this point onward, automatic analysis must
-     * wait until the participant deliberately moves out
-     * of the valid positioning state.
-     */
     this.waitingForReposition = true;
 
     this.repositionDetected = false;
@@ -1471,9 +1490,6 @@ export class FitAssistant
     );
 
 
-    /*
-     * Rolling buffer keeps only recent valid frames.
-     */
     if (
       this.measurementSamples.length >
       this.maxSamples
@@ -1643,10 +1659,6 @@ export class FitAssistant
     );
 
 
-    /*
-     * Highlight the torso region used by
-     * the proportion calculations.
-     */
     this.drawLine(
       context,
       landmarks[11],
