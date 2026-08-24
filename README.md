@@ -1,59 +1,64 @@
-# VirtualFitAssistant
+# Virtual Fit Assistant
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.14.
+A browser-based Virtual Fit Assistant that uses client-side pose estimation to provide T-shirt size guidance while preserving user privacy.
 
-## Development server
+The application was developed as part of an MSc Computing project investigating whether browser-based, client-side pose estimation can support clothing size selection while maintaining acceptable usability and reducing the need to upload or store webcam imagery.
 
-To start a local development server, run:
+## Live Application
 
-```bash
-ng serve
-```
+You can try the deployed application here:
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+[Virtual Fit Assistant](https://hazminfirdaus.github.io/virtual-fit-assistant/)
 
-## Code scaffolding
+## Project Overview
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+The Virtual Fit Assistant uses a webcam and MediaPipe Pose to detect selected shoulder and hip landmarks in real time.
 
-```bash
-ng generate component component-name
-```
+The application:
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+- processes webcam frames locally in the browser;
+- detects shoulder and hip landmarks using MediaPipe Pose;
+- derives two-dimensional pose-based body features;
+- uses guided positioning to improve capture consistency;
+- averages measurements across multiple valid frames;
+- generates a rule-based T-shirt size recommendation from XS to XL;
+- supports automatic capture and hands-free re-analysis;
+- requires landscape orientation on mobile devices.
 
-```bash
-ng generate --help
-```
+The application does not upload or store webcam images or video as part of the fitting workflow.
 
-## Building
+## Technologies
 
-To build the project run:
+- Angular
+- TypeScript
+- MediaPipe Tasks Vision
+- HTML
+- CSS
+- GitHub Pages
 
-```bash
-ng build
-```
+## Architecture
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+The application is organised around a central `FitAssistant` component and three supporting services:
 
-## Running unit tests
+- `Pose` — MediaPipe initialisation and pose detection
+- `Measurement` — pose-derived feature calculation
+- `SizeRecommendation` — rule-based T-shirt size recommendation
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+The overall processing flow is:
 
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+```text
+Webcam Input
+    ↓
+MediaPipe Pose
+    ↓
+Shoulder and Hip Landmarks
+    ↓
+Position Validation
+    ↓
+Feature Extraction
+    ↓
+Multi-Frame Averaging
+    ↓
+Rule-Based Recommendation
+    ↓
+T-Shirt Size Guidance
